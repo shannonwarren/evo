@@ -25,6 +25,8 @@ from __future__ import print_function
 
 import logging
 
+from evo.tools.settings import SETTINGS
+
 logger = logging.getLogger(__name__)
 
 SEP = "-" * 80  # separator line
@@ -32,6 +34,7 @@ SEP = "-" * 80  # separator line
 
 def parser():
     import argparse
+
     basic_desc = "Relative pose error (RPE) metric app"
     lic = "(c) evo authors"
 
@@ -49,6 +52,10 @@ def parser():
                            action="store_true")
     algo_opts.add_argument("-s", "--correct_scale", action="store_true",
                            help="correct scale with Umeyama's method")
+    algo_opts.add_argument(
+        "--n_to_align",
+        help="the number of poses to use for Umeyama alignment, "
+        "counted from the start (default: all)", default=-1, type=int)
     algo_opts.add_argument(
         "--align_origin",
         help="align the trajectory origin to the origin of the reference "
@@ -74,7 +81,8 @@ def parser():
         help="show plot window",
     )
     output_opts.add_argument(
-        "--plot_mode", default="xyz", help="the axes for plot projection",
+        "--plot_mode", default=SETTINGS.plot_mode_default,
+        help="the axes for plot projection",
         choices=["xy", "xz", "yx", "yz", "zx", "zy", "xyz"])
     output_opts.add_argument(
         "--plot_colormap_max", type=float,
@@ -166,8 +174,8 @@ def parser():
 
 def rpe(traj_ref, traj_est, pose_relation, delta, delta_unit,
         rel_delta_tol=0.1, all_pairs=False, align=False, correct_scale=False,
-        align_origin=False, ref_name="reference", est_name="estimate",
-        support_loop=False):
+        n_to_align=-1, align_origin=False, ref_name="reference",
+        est_name="estimate", support_loop=False):
 
     from evo.core import metrics
     from evo.core import trajectory
@@ -177,7 +185,8 @@ def rpe(traj_ref, traj_est, pose_relation, delta, delta_unit,
     if align or correct_scale:
         logger.debug(SEP)
         traj_est = trajectory.align_trajectory(traj_est, traj_ref,
-                                               correct_scale, only_scale)
+                                               correct_scale, only_scale,
+                                               n=n_to_align)
     elif align_origin:
         logger.debug(SEP)
         traj_est = trajectory.align_trajectory_origin(traj_est, traj_ref)
@@ -200,6 +209,8 @@ def rpe(traj_ref, traj_est, pose_relation, delta, delta_unit,
         title += "\n(with origin alignment)"
     else:
         title += "\n(not aligned)"
+    if (align or correct_scale) and n_to_align != -1:
+        title += " (aligned poses: {})".format(n_to_align)
 
     rpe_result = rpe_metric.get_result(ref_name, est_name)
     rpe_result.info["title"] = title
@@ -229,10 +240,8 @@ def rpe(traj_ref, traj_est, pose_relation, delta, delta_unit,
 
 def run(args):
     import evo.common_ape_rpe as common
-    from evo import EvoException
     from evo.core import sync
     from evo.tools import file_interface, log
-    from evo.tools.settings import SETTINGS
 
     log.configure_logging(args.verbose, args.silent, args.debug,
                           local_logfile=args.logfile)
@@ -241,10 +250,6 @@ def run(args):
         parser_str = pformat({arg: getattr(args, arg) for arg in vars(args)})
         logger.debug("main_parser config:\n{}".format(parser_str))
     logger.debug(SEP)
-
-    if (args.plot or args.save_plot or args.serialize_plot) and args.all_pairs:
-        raise EvoException(
-            "all_pairs mode cannot be used with plotting functions")
 
     traj_ref, traj_est, ref_name, est_name = common.load_trajectories(args)
     pose_relation = common.get_pose_relation(args)
@@ -271,15 +276,15 @@ def run(args):
         all_pairs=args.all_pairs,
         align=args.align,
         correct_scale=args.correct_scale,
+        n_to_align=args.n_to_align,
         align_origin=args.align_origin,
         ref_name=ref_name,
         est_name=est_name,
     )
 
     if args.plot or args.save_plot or args.serialize_plot:
-        common.plot(args, result,
-                    traj_ref_full if args.plot_full_ref else traj_ref,
-                    result.trajectories[est_name])
+        common.plot(args, result, traj_ref, result.trajectories[est_name],
+                    traj_ref_full=traj_ref_full)
 
     if args.save_results:
         logger.debug(SEP)

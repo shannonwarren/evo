@@ -25,6 +25,8 @@ from __future__ import print_function
 
 import logging
 
+from evo.tools.settings import SETTINGS
+
 logger = logging.getLogger(__name__)
 
 SEP = "-" * 80
@@ -90,12 +92,15 @@ def parser():
         "--plot_relative_time", action="store_true",
         help="show timestamps relative to the start of the reference")
     output_opts.add_argument(
-        "--plot_mode", help="the axes for  plot projection", default="xyz",
+        "--plot_mode", help="the axes for  plot projection",
+        default=SETTINGS.plot_mode_default,
         choices=["xy", "xz", "yx", "yz", "zx", "zy", "xyz"])
     output_opts.add_argument(
         "--ros_map_yaml", help="yaml file of an ROS 2D map image (.pgm/.png)"
         " that will be drawn into the plot", default=None)
     output_opts.add_argument("--save_plot", help="path to save plot",
+                             default=None)
+    output_opts.add_argument("--save_table", help="path to save table with statistics",
                              default=None)
     output_opts.add_argument("--serialize_plot",
                              help="path to serialize plot (experimental)",
@@ -205,10 +210,11 @@ def load_trajectories(args):
             raise file_interface.FileInterfaceException(
                 "File doesn't exist: {}".format(args.bag))
         import rosbag
+        logger.debug("Opening bag file " + args.bag)
         bag = rosbag.Bag(args.bag)
         try:
             if args.all_topics:
-                topics = file_interface.get_supported_topics(bag)
+                topics = args.topics + file_interface.get_supported_topics(bag)
                 if args.ref in topics:
                     topics.remove(args.ref)
                 if len(topics) == 0:
@@ -278,7 +284,6 @@ def run(args):
     from evo.core import trajectory
     from evo.core.trajectory import PoseTrajectory3D
     from evo.tools import file_interface, log
-    from evo.tools.settings import SETTINGS
 
     log.configure_logging(verbose=args.verbose, silent=args.silent,
                           debug=args.debug, local_logfile=args.logfile)
@@ -514,6 +519,13 @@ def run(args):
                                                     frame_id)
         finally:
             bag.close()
+
+    if args.save_table:
+        from evo.tools import pandas_bridge
+        logger.debug(SEP)
+        df = pandas_bridge.trajectories_stats_to_df(trajectories)
+        pandas_bridge.save_df_as_table(df, args.save_table,
+                                       confirm_overwrite=not args.no_warnings)
 
 
 if __name__ == '__main__':
